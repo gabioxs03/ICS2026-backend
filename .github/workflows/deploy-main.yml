@@ -1,0 +1,34 @@
+name: Build and Deploy to Azure App Service (Publish Profile)
+
+on:
+  push:
+    branches: [ development, main ]
+    paths:
+      - 'Dsw2025Tpi/**'
+  pull_request:
+    branches: [ development, main ]
+    paths:
+      - 'Dsw2025Tpi/**'
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout del código
+      uses: actions/checkout@v4
+    - name: Configurar SDK de .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+    - name: Compilar y Publicar API
+      run: |
+        dotnet restore Dsw2025Tpi
+        dotnet publish Dsw2025Tpi -c Release -o ./publish
+    - name: Deploy to Azure App Service
+      if: github.event_name != 'pull_request'
+      uses: azure/webapps-deploy@v3
+      with:
+        app-name: ${{ secrets.APP_SERVICE_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: './publish'
