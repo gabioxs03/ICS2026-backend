@@ -1,9 +1,0 @@
-**/bin/
-**/obj/
-**/*.user
-**/*.suo
-**/.DS_Store
-.git
-.gitignore
-Dockerfile
-.dockerignore
