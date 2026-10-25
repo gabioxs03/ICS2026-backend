@@ -185,7 +185,7 @@ Las tablas se crean solas: al arrancar, la API ejecuta las migraciones de Entity
 2. Pestaña **Container**:
    - Image source: *Other container registries* · Access type: *Public*
    - Registry server URL: `https://index.docker.io`
-   - Image and tag: `<usuario-dockerhub>/ics-backend:latest`
+   - Image and tag: `tadeoredel/ics-backend:latest`
    - Port: `8080`
 3. Una vez creado, **Settings → Environment variables → App settings**, agregar:
 
@@ -211,7 +211,7 @@ app.UseSwagger();
 app.UseSwaggerUI();
 ```
 
-URL pública: **https://\<nombre-app-service\>.azurewebsites.net/swagger**
+URL pública: **[https://api-ecommerce.azurewebsites.net/swagger](https://api-ecommerce.azurewebsites.net/swagger)**
 
 ---
 
