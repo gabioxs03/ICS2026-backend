@@ -74,7 +74,8 @@ public class OrdersControllerTests : IntegrationTestBase
 
         var savedProduct = await Factory.QueryDbAsync(db =>
             db.Set<Product>().AsNoTracking().SingleAsync(p => p.Id == product.Id));
-        Assert.Equal(7, savedProduct.StockQuantity);
+        // DEMO TP4: aserción rota a propósito para mostrar el deploy bloqueado. NO MERGEAR.
+        Assert.Equal(6, savedProduct.StockQuantity);
     }
 
     [Fact]
