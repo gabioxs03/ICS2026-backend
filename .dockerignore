@@ -11,3 +11,9 @@ docs/
 README.md
 Dockerfile
 .dockerignore
+
+# Pruebas automatizadas (TP4): no forman parte de la imagen
+Dsw2025Tpi.UnitTests/
+Dsw2025Tpi.IntegrationTests/
+e2e/
+TestResults/
