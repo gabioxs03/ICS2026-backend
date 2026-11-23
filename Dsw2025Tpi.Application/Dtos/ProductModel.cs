@@ -24,9 +24,14 @@
         );
 
         public record ResponsePagination(
-            List<ResponseProduct> ProductItems, 
+            List<ResponseProduct> ProductItems,
             int Total
-        );
+        )
+        {
+            // Alias de Total con el nombre del contrato del TP4 ("totalItems").
+            // Se mantiene "total" para no romper a los clientes que ya lo usan.
+            public int TotalItems => Total;
+        }
 
         public record FilterProduct(
             string? Status,

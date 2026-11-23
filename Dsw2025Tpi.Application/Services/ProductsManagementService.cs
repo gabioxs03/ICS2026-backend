@@ -99,22 +99,26 @@ namespace Dsw2025Tpi.Application.Services
                 isActiveFilter = parsedStatus;
             }
 
+            // Búsqueda parcial sin distinguir mayúsculas/minúsculas (TP4).
+            // Se normaliza a minúsculas para que el resultado no dependa de la collation de la base.
+            string? search = filter.Search?.ToLower();
+
             var filteredProducts = await _repository.GetFiltered<Product>(p =>
-                
+
                 (includeInactive || p.IsActive)
 
                 &&
 
-                
+
                 (!isActiveFilter.HasValue || p.IsActive == isActiveFilter.Value)
 
                 &&
 
-                
-                (string.IsNullOrEmpty(filter.Search)
-                    || (p.Name != null && p.Name.Contains(filter.Search))
-                    || (p.InternalCode != null && p.InternalCode.Contains(filter.Search))
-                    || (p.Sku != null && p.Sku.Contains(filter.Search))
+
+                (string.IsNullOrEmpty(search)
+                    || (p.Name != null && p.Name.ToLower().Contains(search))
+                    || (p.InternalCode != null && p.InternalCode.ToLower().Contains(search))
+                    || (p.Sku != null && p.Sku.ToLower().Contains(search))
                 )
             );
 

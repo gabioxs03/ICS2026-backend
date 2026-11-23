@@ -152,11 +152,15 @@ public class Program
 
             try
             {
+                // Las migraciones son de SQL Server. Con otro proveedor (SQLite en las
+                // pruebas de integración, TP4) se crea el esquema directamente desde el modelo.
                 var authContext = services.GetRequiredService<AuthenticateContext>();
-                authContext.Database.Migrate();
+                if (authContext.Database.IsSqlServer()) authContext.Database.Migrate();
+                else authContext.Database.EnsureCreated();
 
                 var context = services.GetRequiredService<Dsw2025TpiContext>();
-                context.Database.Migrate();
+                if (context.Database.IsSqlServer()) context.Database.Migrate();
+                else context.Database.EnsureCreated();
 
                 var userManager = services.GetRequiredService<UserManager<IdentityUser>>();
                 var roleManager = services.GetRequiredService<RoleManager<IdentityRole>>();

@@ -1,4 +1,4 @@
-name: CI/CD - Build, Docker y Deploy a Azure App Service
+name: CI/CD - Tests, Build, Docker y Deploy a Azure App Service
 
 on:
   push:
@@ -7,11 +7,207 @@ on:
     branches: [development, main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 env:
   IMAGE_NAME: ics-backend
+  DOTNET_VERSION: '8.0.x'
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
+  # ---------------------------------------------------------------------------
+  # Base de la pirámide: pruebas unitarias (xUnit + Moq, sin base de datos)
+  # ---------------------------------------------------------------------------
+  unit-tests:
+    name: Pruebas unitarias
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restaurar y compilar
+        run: |
+          dotnet restore Dsw2025Tpi.sln
+          dotnet build Dsw2025Tpi.sln -c Release --no-restore
+
+      - name: Ejecutar pruebas unitarias
+        run: >
+          dotnet test Dsw2025Tpi.UnitTests/Dsw2025Tpi.UnitTests.csproj
+          -c Release --no-build
+          --logger "GitHubActions;summary-include-passed=true"
+          --logger "trx;LogFileName=unit-tests.trx"
+          --results-directory TestResults
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-pruebas-unitarias
+          path: TestResults
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Medio de la pirámide: pruebas de integración (API real + SQLite en memoria)
+  # ---------------------------------------------------------------------------
+  integration-tests:
+    name: Pruebas de integración
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restaurar y compilar
+        run: |
+          dotnet restore Dsw2025Tpi.sln
+          dotnet build Dsw2025Tpi.sln -c Release --no-restore
+
+      - name: Ejecutar pruebas de integración
+        run: >
+          dotnet test Dsw2025Tpi.IntegrationTests/Dsw2025Tpi.IntegrationTests.csproj
+          -c Release --no-build
+          --logger "GitHubActions;summary-include-passed=true"
+          --logger "trx;LogFileName=integration-tests.trx"
+          --results-directory TestResults
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-pruebas-integracion
+          path: TestResults
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Punta de la pirámide: E2E con Newman contra la API levantada con SQL Server
+  # ---------------------------------------------------------------------------
+  e2e-tests:
+    name: Pruebas E2E (Newman)
+    needs: integration-tests
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: 'Y'
+          # Contraseña de un contenedor efímero que solo existe durante este job.
+          MSSQL_SA_PASSWORD: E2eTest_Passw0rd
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P E2eTest_Passw0rd -C -Q 'SELECT 1' || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P E2eTest_Passw0rd -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 20s
+    steps:
+      - name: Obtener el código
+        uses: actions/checkout@v4
+
+      - name: Configurar .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Publicar la API
+        run: dotnet publish Dsw2025Tpi.Api/Dsw2025Tpi.Api.csproj -c Release -o ./e2e-api
+
+      - name: Levantar la API y esperar a que responda
+        env:
+          ASPNETCORE_URLS: http://localhost:8080
+          ASPNETCORE_ENVIRONMENT: Production
+          ConnectionStrings__Dsw2025TpiEntities: Server=localhost,1433;Database=Dsw2025TpiE2E;User Id=sa;Password=E2eTest_Passw0rd;TrustServerCertificate=True;Encrypt=False
+        # Se arranca desde la carpeta publicada para que la API encuentre appsettings.json,
+        # admins.json y customers.json (el content root es el directorio actual).
+        working-directory: ./e2e-api
+        run: |
+          nohup dotnet Dsw2025Tpi.Api.dll > ../api.log 2>&1 &
+          API_PID=$!
+          for i in $(seq 1 45); do
+            if curl -fs http://localhost:8080/healthcheck > /dev/null; then
+              echo "API lista después de $((i * 2)) segundos"
+              exit 0
+            fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::La API se detuvo durante el arranque"
+              cat ../api.log
+              exit 1
+            fi
+            sleep 2
+          done
+          echo "::error::La API no respondió a /healthcheck a tiempo"
+          cat ../api.log
+          exit 1
+
+      - name: Ejecutar la colección con Newman
+        run: >
+          mkdir -p TestResults &&
+          npx --yes newman@6 run e2e/Dsw2025Tpi.postman_collection.json
+          -e e2e/local.postman_environment.json
+          --env-var baseUrl=http://localhost:8080
+          --reporters cli,junit
+          --reporter-junit-export TestResults/e2e-results.xml
+
+      - name: Mostrar el log de la API si algo falló
+        if: failure()
+        run: cat api.log || true
+
+      - name: Guardar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-pruebas-e2e
+          path: TestResults
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Si cualquier etapa de pruebas falla, se deja constancia en el resumen del run.
+  # GitHub además notifica por mail el fallo del workflow a quien hizo el push / PR.
+  # ---------------------------------------------------------------------------
+  notify-failure:
+    name: Notificar fallo de pruebas
+    needs: [unit-tests, integration-tests, e2e-tests]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Informar deploy bloqueado
+        run: |
+          echo "::error title=Deploy bloqueado::Fallaron las pruebas automatizadas. No se construyó la imagen Docker ni se desplegó a Azure."
+          {
+            echo "## ❌ Deploy bloqueado por pruebas fallidas"
+            echo ""
+            echo "| Etapa | Resultado |"
+            echo "|---|---|"
+            echo "| Pruebas unitarias | ${{ needs.unit-tests.result }} |"
+            echo "| Pruebas de integración | ${{ needs.integration-tests.result }} |"
+            echo "| Pruebas E2E | ${{ needs.e2e-tests.result }} |"
+            echo ""
+            echo "Commit: \`${{ github.sha }}\` · Evento: \`${{ github.event_name }}\` · Autor: @${{ github.actor }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Build de la imagen y deploy: SOLO corre si pasaron todas las pruebas (needs)
+  # ---------------------------------------------------------------------------
   build-and-deploy:
+    name: Build Docker y deploy
+    needs: [unit-tests, integration-tests, e2e-tests]
     runs-on: ubuntu-latest
     steps:
       - name: 1. Obtener el código
@@ -20,7 +216,7 @@ jobs:
       - name: 2. Configurar .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: ${{ env.DOTNET_VERSION }}
 
       - name: 3. Restaurar paquetes
         run: dotnet restore Dsw2025Tpi.sln

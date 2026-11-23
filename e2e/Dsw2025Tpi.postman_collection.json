@@ -1,0 +1,602 @@
+{
+  "info": {
+    "name": "Dsw2025Tpi - E2E (TP4)",
+    "description": "Flujo completo de usuario: login de administrador, alta de producto, listado público, registro de cliente, creación de orden y control de stock.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Login como administrador",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{adminUser}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Login admin responde 200\", () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test(\"Devuelve un token JWT\", () => pm.expect(json.token).to.be.a(\"string\").and.not.empty);",
+              "pm.test(\"El rol es Admin\", () => pm.expect(json.userInfo.role).to.eql(\"Admin\"));",
+              "pm.collectionVariables.set(\"adminToken\", json.token);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 - Crear producto (Admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "products"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sku\": \"{{sku}}\",\n  \"internalCode\": \"E2E-INT\",\n  \"name\": \"{{productName}}\",\n  \"description\": \"Producto creado por la prueba E2E\",\n  \"currentUnitPrice\": 1000,\n  \"stockQuantity\": 10\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// SKU y nombre únicos por ejecución para poder correr la colección varias veces",
+              "const run = Date.now().toString();",
+              "pm.collectionVariables.set(\"sku\", \"E2E-\" + run);",
+              "pm.collectionVariables.set(\"productName\", \"Producto E2E \" + run);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Crear producto responde 201 Created\", () => pm.response.to.have.status(201));",
+              "pm.test(\"Incluye el header Location\", () => pm.response.to.have.header(\"Location\"));",
+              "const json = pm.response.json();",
+              "pm.test(\"El producto queda activo con stock 10\", () => {",
+              "    pm.expect(json.sku).to.eql(pm.collectionVariables.get(\"sku\"));",
+              "    pm.expect(json.stockQuantity).to.eql(10);",
+              "    pm.expect(json.isActive).to.be.true;",
+              "});",
+              "pm.collectionVariables.set(\"productId\", json.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 - Crear producto con SKU duplicado",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "products"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sku\": \"{{sku}}\",\n  \"internalCode\": \"E2E-INT-2\",\n  \"name\": \"Duplicado\",\n  \"description\": null,\n  \"currentUnitPrice\": 500,\n  \"stockQuantity\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"SKU duplicado devuelve un error controlado (400/409), no un 500\", () => {",
+              "    pm.expect(pm.response.code).to.be.oneOf([400, 409]);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 - Listar productos (público) filtrando por SKU",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/products?search={{sku}}&pageNumber=1&pageSize=10",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "products"
+          ],
+          "query": [
+            {
+              "key": "search",
+              "value": "{{sku}}"
+            },
+            {
+              "key": "pageNumber",
+              "value": "1"
+            },
+            {
+              "key": "pageSize",
+              "value": "10"
+            }
+          ]
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Listado público responde 200\", () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test(\"Tiene la estructura paginada\", () => {",
+              "    pm.expect(json).to.have.property(\"productItems\");",
+              "    pm.expect(json).to.have.property(\"totalItems\");",
+              "});",
+              "pm.test(\"Aparece solo el producto creado\", () => {",
+              "    pm.expect(json.totalItems).to.eql(1);",
+              "    pm.expect(json.productItems[0].id).to.eql(pm.collectionVariables.get(\"productId\"));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 - Registrar cliente",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "auth",
+            "register"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"{{customerUser}}\",\n  \"password\": \"Cliente123!\",\n  \"email\": \"{{customerUser}}@e2e.test\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.collectionVariables.set(\"customerUser\", \"e2e_\" + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Registro responde 200\", () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test(\"Devuelve token y customerId\", () => {",
+              "    pm.expect(json.token).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(json.customerId).to.be.a(\"string\").and.not.empty;",
+              "});",
+              "pm.collectionVariables.set(\"userToken\", json.token);",
+              "pm.collectionVariables.set(\"customerId\", json.customerId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 - Crear orden sin token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": \"Calle E2E 123\",\n  \"billingAddress\": \"Calle E2E 123\",\n  \"notes\": null,\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 1\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Sin token responde 401\", () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 - Crear orden (Cliente)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": \"Calle E2E 123\",\n  \"billingAddress\": \"Calle E2E 123\",\n  \"notes\": \"Orden creada por Newman\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 3\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Crear orden responde 201 Created\", () => pm.response.to.have.status(201));",
+              "pm.test(\"Incluye el header Location\", () => pm.response.to.have.header(\"Location\"));",
+              "const json = pm.response.json();",
+              "pm.test(\"El total es 3 x 1000\", () => pm.expect(json.totalAmount).to.eql(3000));",
+              "pm.test(\"La orden queda en estado PENDING\", () => pm.expect(json.status).to.eql(\"PENDING\"));",
+              "pm.collectionVariables.set(\"orderId\", json.orderId);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 - Verificar stock descontado",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/products/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "products",
+            "{{productId}}"
+          ]
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"El stock bajó de 10 a 7\", () => pm.expect(pm.response.json().stockQuantity).to.eql(7));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 - Crear orden sin stock suficiente",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"customerId\": \"{{customerId}}\",\n  \"shippingAddress\": \"Calle E2E 123\",\n  \"billingAddress\": \"Calle E2E 123\",\n  \"notes\": null,\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"quantity\": 100\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Sin stock responde 400\", () => pm.response.to.have.status(400));",
+              "pm.test(\"El mensaje indica la falta de stock\", () => {",
+              "    pm.expect(pm.response.json().Message.toLowerCase()).to.include(\"stock\");",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Consultar la orden creada",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/orders/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "orders",
+            "{{orderId}}"
+          ]
+        },
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Responde 200\", () => pm.response.to.have.status(200));",
+              "const json = pm.response.json();",
+              "pm.test(\"Es la orden creada, con un ítem de 3 unidades\", () => {",
+              "    pm.expect(json.orderId).to.eql(pm.collectionVariables.get(\"orderId\"));",
+              "    pm.expect(json.items).to.have.lengthOf(1);",
+              "    pm.expect(json.items[0].quantity).to.eql(3);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 - El stock no cambió tras la orden rechazada",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/products/{{productId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "products",
+            "{{productId}}"
+          ]
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"El stock sigue en 7\", () => pm.expect(pm.response.json().stockQuantity).to.eql(7));"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "sku",
+      "value": ""
+    },
+    {
+      "key": "productName",
+      "value": ""
+    },
+    {
+      "key": "productId",
+      "value": ""
+    },
+    {
+      "key": "customerUser",
+      "value": ""
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    },
+    {
+      "key": "customerId",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    }
+  ]
+}

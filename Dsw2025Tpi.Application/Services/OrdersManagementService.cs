@@ -123,8 +123,9 @@ public class OrdersManagementService
         var customer = await _repository.GetById<Customer>(request.CustomerId);
         if (customer == null) throw new CustomerNotFoundException(request.CustomerId);
 
-        var orderItems = new List<OrderItem>();
-        decimal total = 0m;
+        // 1) Se validan TODOS los ítems antes de tocar el stock. Así, si un ítem falla,
+        //    no queda ningún producto con el stock descontado a medias.
+        var validatedItems = new List<(Product Product, int Quantity)>();
 
         foreach (var item in request.Items)
         {
@@ -132,12 +133,26 @@ public class OrdersManagementService
 
             var product = await _repository.GetById<Product>(item.ProductId);
             if (product == null || !product.IsActive) throw new ArgumentException($"Producto {item.ProductId} no disponible.");
-            if (product.StockQuantity < item.Quantity) throw new InsufficientStockException(product.Name, product.StockQuantity, item.Quantity);
 
-            product.StockQuantity -= item.Quantity;
+            // Si el mismo producto aparece más de una vez en la orden, se suman las cantidades.
+            int requested = item.Quantity + validatedItems
+                .Where(v => v.Product.Id == product.Id)
+                .Sum(v => v.Quantity);
+            if (product.StockQuantity < requested) throw new InsufficientStockException(product.Name ?? string.Empty, product.StockQuantity, requested);
+
+            validatedItems.Add((product, item.Quantity));
+        }
+
+        // 2) Con todo validado, se descuenta el stock y se arman los ítems de la orden.
+        var orderItems = new List<OrderItem>();
+        decimal total = 0m;
+
+        foreach (var (product, quantity) in validatedItems)
+        {
+            product.StockQuantity -= quantity;
             await _repository.Update(product);
 
-            var orderItem = new OrderItem(Guid.Empty, product.Id, item.Quantity, product.CurrentUnitPrice);
+            var orderItem = new OrderItem(Guid.Empty, product.Id, quantity, product.CurrentUnitPrice);
             orderItem.Product = product; // Asignamos para tener el nombre en la respuesta inmediata
 
             orderItems.Add(orderItem);
