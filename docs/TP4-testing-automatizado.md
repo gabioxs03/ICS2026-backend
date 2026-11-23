@@ -18,7 +18,7 @@ Este documento describe la suite de pruebas automatizadas del backend del e-comm
 ```
                  ▲   E2E (Newman)            1 flujo completo, 11 requests, 24 aserciones
                 ▲▲▲  Integración (SQLite)    9 pruebas: controller + JWT + EF Core
-             ▲▲▲▲▲▲▲ Unitarias (xUnit+Moq)   10 pruebas: lógica de negocio aislada
+             ▲▲▲▲▲▲▲ Unitarias (xUnit+Moq)   10 pruebas (12 casos): lógica aislada
 ```
 
 | Nivel | Qué valida | Herramientas | Base de datos | Velocidad |
