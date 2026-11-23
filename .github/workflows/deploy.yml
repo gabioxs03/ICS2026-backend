@@ -134,17 +134,26 @@ jobs:
           ASPNETCORE_URLS: http://localhost:8080
           ASPNETCORE_ENVIRONMENT: Production
           ConnectionStrings__Dsw2025TpiEntities: Server=localhost,1433;Database=Dsw2025TpiE2E;User Id=sa;Password=E2eTest_Passw0rd;TrustServerCertificate=True;Encrypt=False
+        # Se arranca desde la carpeta publicada para que la API encuentre appsettings.json,
+        # admins.json y customers.json (el content root es el directorio actual).
+        working-directory: ./e2e-api
         run: |
-          nohup dotnet ./e2e-api/Dsw2025Tpi.Api.dll > api.log 2>&1 &
+          nohup dotnet Dsw2025Tpi.Api.dll > ../api.log 2>&1 &
+          API_PID=$!
           for i in $(seq 1 45); do
             if curl -fs http://localhost:8080/healthcheck > /dev/null; then
               echo "API lista después de $((i * 2)) segundos"
               exit 0
             fi
+            if ! kill -0 "$API_PID" 2>/dev/null; then
+              echo "::error::La API se detuvo durante el arranque"
+              cat ../api.log
+              exit 1
+            fi
             sleep 2
           done
           echo "::error::La API no respondió a /healthcheck a tiempo"
-          cat api.log
+          cat ../api.log
           exit 1
 
       - name: Ejecutar la colección con Newman
